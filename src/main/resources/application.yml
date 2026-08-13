@@ -1,0 +1,21 @@
+spring:
+  redis:
+    host: ${REDIS_HOST:localhost}
+
+    port: ${REDIS_PORT:6379}
+
+    password: ${REDIS_PASSWORD:}
+
+  cloud:
+    gateway:
+      routes:
+        - id: post_route
+          uri: ${TARGET_URI:https://jsonplaceholder.typicode.com}
+          predicates:
+            - Path=/posts/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RATE_LIMIT_REPLENISH:2}
+                redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST:5}
+                key-resolver: "#{@ipKeyResolver}"
