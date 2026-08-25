@@ -1,56 +1,52 @@
-package com.rate_limiter_gateway; // 👈 Ajuste para o pacote do seu projeto
+package com.rate_limiter_gateway;
 
-import org.springframework.core.annotation.Order;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilter;
-import org.springframework.web.server.WebFilterChain;
+import org.springframework.web.server.WebExceptionHandler;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 
 @Component
-@Order(-2)
-public class CustomRateLimitHandler implements WebFilter {
+public class CustomRateLimitHandler implements WebExceptionHandler {
+
+    @Autowired
+    private RateLimiterService rateLimiterService;
 
     @Override
-    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+    public Mono<Void> handle(ServerWebExchange exchange, Throwable ex) {
+        if (exchange.getResponse().getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
 
+            exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
-        return chain.filter(exchange).then(Mono.defer(() -> {
+            String jsonResponse = """
+                {
+                    "status": 429,
+                    "error": "Too Many Requests",
+                    "message": "API rate limit exceeded. Please wait a moment before sending more requests."
+                }
+                """;
 
-            ServerHttpResponse response = exchange.getResponse();
+            byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
+            DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(bytes);
 
+            return exchange.getResponse().writeWith(Mono.just(buffer));
+        }
+        return Mono.error(ex);
+    }
+    public boolean handleRequest(String apiKey) {
+        // Exemplo: Limite de 10 requisições a cada 60 segundos por apiKey
+        boolean allowed = rateLimiterService.isAllowed(apiKey, 10, 60);
 
-            if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+        if (!allowed) {
+            // Lógica para retornar HTTP Status 429 Too Many Requests
+            return false;
+        }
 
-
-                response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-
-
-                String jsonResponse = String.format("""
-                    {
-                      "timestamp": "%s",
-                      "status": 429,
-                      "error": "Too Many Requests",
-                      "message": "Limite de requisições excedido. Aguarde alguns instantes."
-                    }
-                    """, Instant.now().toString());
-
-
-                byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
-                DataBuffer buffer = response.bufferFactory().wrap(bytes);
-
-
-                return response.writeWith(Mono.just(buffer));
-            }
-
-            return Mono.empty();
-        }));
+        return true;
     }
 }
