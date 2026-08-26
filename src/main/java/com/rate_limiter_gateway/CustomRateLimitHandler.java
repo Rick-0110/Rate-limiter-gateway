@@ -1,26 +1,39 @@
 package com.rate_limiter_gateway;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebExceptionHandler;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 
 @Component
-public class CustomRateLimitHandler implements WebExceptionHandler {
+public class CustomRateLimitHandler implements GlobalFilter, Ordered {
 
     @Autowired
     private RateLimiterService rateLimiterService;
 
     @Override
-    public Mono<Void> handle(ServerWebExchange exchange, Throwable ex) {
-        if (exchange.getResponse().getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        String apiKey = exchange.getRequest().getHeaders().getFirst("x-API-KEY");
+        if (apiKey == null || apiKey.isBlank()) {
+            if (exchange.getRequest().getRemoteAddress() != null) {
+                apiKey = exchange.getRequest().getRemoteAddress().getAddress().getHostAddress();
+            } else {
+                apiKey = "anonymous";
+            }
+        }
 
+        boolean allowed = rateLimiterService.isAllowed(apiKey, 10, 60);
+
+        if (!allowed) {
+            exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
             exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
             String jsonResponse = """
@@ -36,17 +49,12 @@ public class CustomRateLimitHandler implements WebExceptionHandler {
 
             return exchange.getResponse().writeWith(Mono.just(buffer));
         }
-        return Mono.error(ex);
+
+        return chain.filter(exchange);
     }
-    public boolean handleRequest(String apiKey) {
-        // Exemplo: Limite de 10 requisições a cada 60 segundos por apiKey
-        boolean allowed = rateLimiterService.isAllowed(apiKey, 10, 60);
 
-        if (!allowed) {
-            // Lógica para retornar HTTP Status 429 Too Many Requests
-            return false;
-        }
-
-        return true;
+    @Override
+    public int getOrder() {
+        return -1;
     }
 }
