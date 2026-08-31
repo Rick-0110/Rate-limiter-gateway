@@ -11,6 +11,7 @@ spring:
           predicates:
             - Path=/posts/**
           filters:
+            - JwtAuthenticationFilter
             - name: RequestRateLimiter
               args:
                 redis-rate-limiter.replenishRate: ${RATE_LIMIT_REPLENISH:2}
